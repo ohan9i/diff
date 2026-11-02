@@ -143,15 +143,28 @@ const FORMULAS = [
   },
 ];
 const FMAP = Object.fromEntries(FORMULAS.map(f => [f.id, f]));
-// 카드 아이콘·색 (카드 왼쪽 띠, 아이콘 배지, 진행 막대에 쓰임)
+// 카드 모양: [아이콘, 진한색, 밝은색, 짧은 이름]
 const LOOK = {
-  fourier: ['🧱', '#ff6a3d', '#ffb347', '전도'], parallel: ['🔀', '#ff8f3d', '#ffd36b', '병렬'], series: ['🧥', '#f2b33d', '#fff08a', '직렬'],
-  conv: ['🌀', '#ff5e7a', '#ffa36b', '대류'], bridge: ['🌉', '#b06bff', '#ff7ab8', '열교'], rad: ['🔆', '#ff3d3d', '#ffcf5a', '복사'],
-  solar: ['☀️', '#ff9f1c', '#ffe066', '일사'], cond: ['🧊', '#2c9be6', '#8be3ff', '습공기'], fick: ['🫧', '#3d7bff', '#7fe0ff', '확산'],
-  latent: ['♨️', '#ff7a45', '#4fd1ff', '상변화'], glaser: ['🛡️', '#6c5ce7', '#4fd1ff', '결로'],
+  fourier: ['🧱', '#ff6b35', '#ffb347', '전도'], parallel: ['🔀', '#ff8c42', '#ffd166', '병렬'], series: ['🧥', '#f4a300', '#ffe066', '직렬 단열'],
+  conv: ['🌀', '#ff5d8f', '#ffa3c1', '대류'], bridge: ['🌉', '#9b5de5', '#d0a8ff', '열교'], rad: ['🔆', '#ff4d4d', '#ffb199', '복사'],
+  solar: ['☀️', '#ffb000', '#ffe27a', '햇빛'], cond: ['🧊', '#2c9be6', '#8fd3ff', '이슬점'], fick: ['🫧', '#3a7bff', '#9ec5ff', '확산'],
+  latent: ['♨️', '#ff7a45', '#7fd3ff', '잠열'], glaser: ['🛡️', '#6c5ce7', '#a29bfe', '결로'],
 };
-const look = (f) => LOOK[f.id] || ['⚙️', '#ff7a45', '#ffcf5a', f.tag];
+// 업그레이드 버튼에 쓰는 짧은 이름: [기호, 한 단어]
+const SHORT = {
+  'fourier.k': ['k', '재료'], 'fourier.dT': ['ΔT', '온도차'], 'fourier.dx': ['Δx', '두께'], 'fourier.A': ['A', '면적'],
+  'parallel.N': ['N', '막대 수'], 'series.Rt': ['R', '단열층'],
+  'conv.h': ['h', '흐름'], 'conv.dT': ['ΔT', '온도차'], 'conv.A': ['A', '면적'], 'bridge.beta': ['β', '누설'],
+  'rad.T': ['T', '온도'], 'rad.eps': ['ε', '표면'], 'rad.A': ['A', '면적'],
+  'solar.alpha': ['α', '색'], 'solar.qpk': ['q', '지역'], 'solar.A': ['A', '면적'],
+  'cond.RH': ['φ', '습도'], 'cond.T2': ['T', '코일'], 'cond.m': ['ṁ', '바람'],
+  'fick.dp': ['Δp', '압력차'], 'fick.mu': ['μ', '막'], 'fick.d': ['d', '두께'], 'fick.A': ['A', '면적'], 'latent.eff': ['η', '회수'],
+};
+const look = (f) => LOOK[f.id] || ['⚙️', '#ff6b35', '#ffb347', f.name];
 const cssVars = (f) => `--c1:${look(f)[1]};--c2:${look(f)[2]}`;
+const texI = (s) => { try { return katex.renderToString(s, { throwOnError: false, displayMode: false }); } catch (e) { return s; } };
+// 카드 한 줄 공식: tex 의 첫 식만 (\qquad 앞)
+const mainTex = (f) => f.tex.split(/\\qquad|,\\quad/)[0].replace(/,\s*$/, '');
 
 /* ---------------- 상태 ---------------- */
 const SAVE_KEY = 'heat-tycoon-v1';
@@ -206,68 +219,71 @@ function pay(cost, cur) { if (cur === 'W') G.Wg -= cost; else G.J -= cost; }
 /* ---------------- UI: 카드 ---------------- */
 function tex(s) { try { return katex.renderToString(s, { throwOnError: false, displayMode: true }); } catch (e) { return s; } }
 
-const openDesc = new Set();
-document.addEventListener('toggle', (e) => { const d = e.target; if (d.dataset && d.dataset.d) d.open ? openDesc.add(d.dataset.d) : openDesc.delete(d.dataset.d); }, true);
+function upHTML(f, p) {
+  const L = lvl(f.id, p.id), M = maxL(p), v = param(f, p), cur = f.cur || 'J';
+  const sh = SHORT[f.id + '.' + p.id] || [p.id, p.label];
+  const next = L < M ? (p.values ? p.values[L + 1] : p.fn(L + 1)) : null;
+  const nm = p.names ? p.names[Math.min(L, p.names.length - 1)] : null;
+  const val = nm ? (next != null ? `${nm} → <b>${p.names[L + 1]}</b>` : nm) : `${num(v)}${next != null ? ` → <b>${num(next)}</b>` : ''} ${p.unit}`;
+  return `<button class="up ${L >= M ? 'maxed' : ''}" data-f="${f.id}" data-p="${p.id}" ${L >= M ? 'disabled' : ''} title="${p.label}: ${p.why}">
+    <span class="sym">${sh[0]}<small>${sh[1]}</small></span><span class="val">${val}</span>
+    <span class="cost">${L >= M ? 'MAX' : (cur === 'W' ? '💧' : '🔥') + ' ' + fCur(upCost(f, p, L), cur)}</span><span class="fill"></span></button>`;
+}
+function outHTML(f) {
+  return f.heat ? fW(rawOut(f) * eta() * G.mult) : f.water ? fG(rawOut(f) * G.mult) + '/s' : '';
+}
 function renderCards() {
   const col = $('#cards');
   const list = FORMULAS.filter(f => has(f.id)).reverse();
   col.innerHTML = list.map(f => {
-    const cur = f.cur || 'J';
-    const ups = f.params.map(p => {
-      const L = lvl(f.id, p.id), M = maxL(p), v = param(f, p);
-      const name = p.names ? p.names[Math.min(L, p.names.length - 1)] : '';
-      const next = L < M ? (p.values ? p.values[L + 1] : p.fn(L + 1)) : null;
-      const nextName = p.names && L < M ? p.names[L + 1] : '';
-      const cost = upCost(f, p, L);
-      return `<button class="up ${L >= M ? 'maxed' : ''}" data-f="${f.id}" data-p="${p.id}" ${L >= M ? 'disabled' : ''}>
-        <span class="row"><span class="t">${p.label}</span><span class="lv">Lv ${L}/${M}</span></span>
-        <span class="v">${name ? name + ' · ' : ''}${num(v)} ${p.unit}${next != null ? ` → <b>${nextName ? nextName + ' ' : ''}${num(next)}</b>` : ''}</span>
-        ${L >= M ? '' : '<span class="bar"><i></i></span>'}
-        <span class="c">${L >= M ? '최대 레벨 ✓' : '💰 ' + fCur(cost, cur)}</span>
-        <span class="why">${p.why}</span></button>`;
-    }).join('');
-    const out = f.heat ? `<div class="out">${fW(rawOut(f) * eta() * G.mult)}<small>열 수입</small></div>` : f.water ? `<div class="out w">${fG(rawOut(f) * G.mult)}/s<small>물 수입</small></div>` : '';
-    const lk = look(f);
+    const lk = look(f), o = outHTML(f);
     return `<div class="card panel" id="card-${f.id}" style="${cssVars(f)}">
-      <div class="card-head"><div class="icon">${lk[0]}</div>
-        <div class="ttl"><div class="name">${f.name}<span class="tag ${f.tag === '습기' ? 'm' : ''}">${f.tag} · ${lk[3]}</span></div><div class="subst" data-subst="${f.id}"></div></div>${out}</div>
-      <div class="formula">${tex(f.tex)}</div>
-      <details class="desc" data-d="${f.id}" ${openDesc.has(f.id) ? 'open' : ''}><summary>원리 보기</summary>${f.desc}</details>
-      ${ups ? `<div class="ups">${ups}</div>` : ''}</div>`;
+      <div class="card-head"><div class="badge">${lk[0]}</div>
+        <div class="ttl"><div class="name">${lk[3]}<button class="qbtn" data-info="${f.id}" title="원리 보기">?</button></div><div class="eq">${texI(mainTex(f))}</div></div>
+        ${o ? `<div class="out ${f.water ? 'w' : ''}"><span>${o}</span><small>${f.water ? '물' : '열'} 수입</small></div>` : f.id === 'glaser' ? `<div class="out"><span>×${G.mult.toFixed(1)}</span><small>배수</small></div>` : ''}</div>
+      ${f.params.length ? `<div class="ups">${f.params.map(p => upHTML(f, p)).join('')}</div>` : ''}</div>`;
   }).join('');
   refreshCards();
 }
 function refreshCards() {
   FORMULAS.forEach(f => {
     if (!has(f.id)) return;
-    const s = document.querySelector(`[data-subst="${f.id}"]`);
-    if (s) s.textContent = f.subst(pvals(f));
-    const o = document.querySelector(`#card-${f.id} .out`);
-    if (o) o.firstChild.textContent = f.heat ? fW(rawOut(f) * eta() * G.mult) : f.water ? fG(rawOut(f) * G.mult) + '/s' : '';
+    const o = document.querySelector(`#card-${f.id} .out span`);
+    if (o && (f.heat || f.water)) o.textContent = outHTML(f);
   });
   $$('.up').forEach(b => {
     const f = FMAP[b.dataset.f], p = f.params.find(x => x.id === b.dataset.p), L = lvl(f.id, p.id);
     if (L >= maxL(p)) return;
-    const cost = upCost(f, p, L), ok = canPay(cost, f.cur || 'J');
+    const cur = f.cur || 'J', cost = upCost(f, p, L), ok = canPay(cost, cur);
     b.classList.toggle('can', ok);
-    b.querySelector('.c').textContent = '💰 ' + fCur(cost, f.cur || 'J');
-    const bar = b.querySelector('.bar i'); if (bar) bar.style.width = Math.min(100, (f.cur === 'W' ? G.Wg : G.J) / cost * 100) + '%';
+    b.querySelector('.cost').textContent = (cur === 'W' ? '💧 ' : '🔥 ') + fCur(cost, cur);
+    b.querySelector('.fill').style.width = Math.min(100, (cur === 'W' ? G.Wg : G.J) / cost * 100) + '%';
   });
   renderNext();
 }
+function infoModal(f) {
+  showModal(`<div class="burst" style="${cssVars(f)}"><div class="badge">${look(f)[0]}</div><h2>${f.name}</h2></div>
+    <div class="formula">${tex(f.tex)}</div><div class="subst">${f.subst(pvals(f))}</div><p>${f.desc}</p>`);
+}
+$('#cards').addEventListener('click', (e) => { const q = e.target.closest('[data-info]'); if (q) { e.stopPropagation(); infoModal(FMAP[q.dataset.info]); } }, true);
 function renderNext() {
   const nf = FORMULAS.find(f => !has(f.id));
   const box = $('#nextCard');
-  if (!nf) { box.innerHTML = `<div class="lock-card"><div class="ring" style="--p:${Math.min(100, G.life / 1e12 * 100)}"><span>🏆</span></div><div class="kick">ALL UNLOCKED</div><div class="big">모든 공식을 해금했어요!</div><div class="desc">목표: 누적 1 TJ → 열공장 마스터 · 현재 ${fJ(G.life)}</div></div>`; return; }
-  const pct = Math.min(100, G.J / nf.cost * 100);
-  const m = nf.tag === '습기';
-  const key = nf.id + (G.J >= nf.cost ? 1 : 0) + Math.floor(pct);
-  if (box.dataset.key === key) return; // 같은 상태면 다시 그리지 않음 (버튼 애니메이션 유지)
+  if (!nf) {
+    const key = 'end' + Math.floor(G.life / 1e12 * 100);
+    if (box.dataset.key === key) return; box.dataset.key = key;
+    box.className = 'panel next';
+    box.innerHTML = `<div class="ring" style="--p:${Math.min(100, G.life / 1e12 * 100)}"><span>🏆</span></div><div class="info"><div class="kick">모든 공식 해금!</div><div class="nm">누적 1 TJ 모으기</div></div>`;
+    return;
+  }
+  const pct = Math.min(100, G.J / nf.cost * 100), ready = G.J >= nf.cost, m = nf.tag === '습기';
+  const key = nf.id + (ready ? 1 : 0) + Math.floor(pct);
+  if (box.dataset.key === key) return; // 같은 상태면 다시 그리지 않음 (애니메이션 유지)
   box.dataset.key = key;
-  box.innerHTML = `<div class="lock-card ${m ? 'm' : ''}"><div class="ring" style="--p:${pct}"><span>${G.J >= nf.cost ? look(nf)[0] : '🔒'}</span></div>
-    <div class="kick">NEXT FORMULA · ${Math.floor(pct)}%</div><div class="big">${nf.name}</div>
-    <div class="desc">${m && !has('cond') ? '💧 해금하면 <b>습기</b> 단계가 시작돼요! · ' : ''}해금 비용 ${fJ(nf.cost)}</div>
-    <button class="unlock-btn ${m ? 'm' : ''}" id="unlockBtn" ${G.J >= nf.cost ? '' : 'disabled'}>해금하기 · ${fJ(nf.cost)}</button></div>`;
+  box.className = 'panel next' + (m ? ' m' : '');
+  box.innerHTML = `<div class="ring ${ready ? 'ready' : ''}" style="--p:${pct}"><span>${ready ? look(nf)[0] : '🔒'}</span></div>
+    <div class="info"><div class="kick">다음 공식${m && !has('cond') ? ' · 💧 습기 시작!' : ''}</div><div class="nm">${look(nf)[3]}</div></div>
+    <button class="unlock-btn ${m ? 'm' : ''}" id="unlockBtn" ${ready ? '' : 'disabled'}>🔥 ${fJ(nf.cost)}</button>`;
   $('#unlockBtn').onclick = () => unlock(nf);
 }
 function unlock(f) {
@@ -277,7 +293,9 @@ function unlock(f) {
   log(`🔓 ${f.name} 해금!`);
   renderCards(); save();
   $('#nextCard').dataset.key = '';
-  showModal(`<div class="burst" style="${cssVars(f)}"><div class="rays"></div><div class="icon">${look(f)[0]}</div><h2>새 공식 해금!</h2></div><h3>${f.name}</h3><div class="formula">${tex(f.tex)}</div><p>${f.desc}</p><p style="color:var(--muted);font-size:13px">도감(📖)에 저장되었어요.</p>`);
+  showModal(`<div class="burst" style="${cssVars(f)}"><div class="rays"></div><div class="badge">${look(f)[0]}</div><h2>${look(f)[3]} 해금!</h2></div>
+    <div class="formula">${tex(f.tex)}</div><p>${f.desc}</p><button class="big-ok" id="okBtn">좋아요!</button>`);
+  $('#okBtn').onclick = hideModal; burst(null, null, 40); shake();
 }
 $('#cards').addEventListener('click', (e) => {
   const b = e.target.closest('.up'); if (!b || b.disabled) return;
@@ -287,8 +305,9 @@ $('#cards').addEventListener('click', (e) => {
   const before = f.heat ? rawOut(f) : f.water ? rawOut(f) : incomeJ();
   pay(cost, cur); G.lv[f.id + '.' + p.id] = L + 1;
   const after = f.heat ? rawOut(f) : f.water ? rawOut(f) : incomeJ();
-  if (before > 0 && after > 0) toast(`${p.label}: 출력 ×${(after / before).toFixed(2)}`);
-  else toast(`${p.label} 업그레이드!`);
+  const sh = (SHORT[f.id + '.' + p.id] || [p.id, p.label])[1];
+  if (before > 0 && after > 0) toast(`${look(f)[0]} ${sh} ↑  출력 ×${(after / before).toFixed(2)}`);
+  else toast(`${look(f)[0]} ${sh} ↑`);
   renderCards(); save();
   const nb = document.querySelector(`.up[data-f="${f.id}"][data-p="${p.id}"]`); if (nb) nb.classList.add('pop');
   burst(null, null, 10);
@@ -299,224 +318,263 @@ const stage = $('#stage');
 let parts = [], floats = [], blob = null, drag = null, drops = [];
 const MAT_COL = { 0.035: '#f4e04d', 0.13: '#c9a26b', 0.7: '#c4703f', 1.5: '#a9adb3', 50: '#7f8c9d', 200: '#d6dde6', 400: '#d98c4a', 2000: '#b9f2ff' };
 function geom() {
-  const w = stage.clientWidth, h = Math.round(Math.min(450, Math.max(370, w * 0.64)));
-  return { w, h, hx: w * 0.22, cx: w * 0.78 };
+  const w = stage.clientWidth, h = Math.round(Math.min(460, Math.max(340, w * 0.66)));
+  const z = w < 520 ? 0.29 : 0.25;
+  return { w, h, hx: w * z, cx: w * (1 - z) };
 }
-let embers = [], snow = [], sparks = [], ripples = [];
+let embers = [], snow = [], sparks = [], ripples = [], smoke = [], squash = 0;
 const MOTION = !(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
-function pill(ctx, text, x, y, fg = '#e9ecf8', bg = 'rgba(8,10,18,.62)', font = '600 11px Pretendard, sans-serif') {
-  ctx.font = font; const tw = ctx.measureText(text).width + 14;
-  ctx.fillStyle = bg; roundRect(ctx, x - tw / 2, y - 10, tw, 20, 10); ctx.fill();
-  ctx.fillStyle = fg; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, x, y + 0.5); ctx.textBaseline = 'alphabetic';
-}
-function flame(ctx, x, y, s, t, i) {
-  const f = 1 + Math.sin(t * 9 + i * 2.1) * 0.08 + Math.sin(t * 15 + i) * 0.05;
-  const hgt = s * 1.9 * f;
-  const g = ctx.createRadialGradient(x, y - hgt * 0.25, 1, x, y - hgt * 0.3, hgt);
-  g.addColorStop(0, 'rgba(255,250,210,1)'); g.addColorStop(0.25, 'rgba(255,200,80,.95)'); g.addColorStop(0.6, 'rgba(255,90,30,.75)'); g.addColorStop(1, 'rgba(255,40,20,0)');
-  ctx.fillStyle = g;
-  const sway = Math.sin(t * 5 + i) * s * 0.18;
-  ctx.beginPath(); ctx.moveTo(x - s * 0.55, y);
-  ctx.bezierCurveTo(x - s * 0.7, y - hgt * 0.5, x + sway - s * 0.15, y - hgt * 0.7, x + sway, y - hgt);
-  ctx.bezierCurveTo(x + sway + s * 0.2, y - hgt * 0.65, x + s * 0.75, y - hgt * 0.45, x + s * 0.55, y);
-  ctx.closePath(); ctx.fill();
-}
+const OUTLINE = 'rgba(43,45,66,.85)';
 function burst(x, y, n = 12, col) {
-  if (x == null) { const g = geom(); x = g.hx; y = g.h * 0.55; }
-  for (let i = 0; i < n; i++) { const a = Math.random() * Math.PI * 2, v = 60 + Math.random() * 160; sparks.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 40, life: 0.5 + Math.random() * 0.4, c: col || (Math.random() < 0.5 ? '#ffd36b' : '#ff7a3c') }); }
+  if (x == null) { const g = geom(); x = g.hx * 0.5; y = g.h * 0.5; }
+  for (let i = 0; i < n; i++) { const a = Math.random() * Math.PI * 2, v = 80 + Math.random() * 180; sparks.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, life: 0.5 + Math.random() * 0.4, c: col || ['#ffd23f', '#ff8c42', '#ff6b35', '#fff3b0'][i % 4], r: 2 + Math.random() * 3 }); }
 }
 function shake() { if (!MOTION) return; const w = $('#stageWrap'); w.classList.remove('shake'); void w.offsetWidth; w.classList.add('shake'); }
+function eyes(ctx, x, y, s, look = 0, blink = false) {
+  // 귀여운 눈: 흰자 + 눈동자 + 하이라이트
+  for (const dx of [-1, 1]) {
+    const ex = x + dx * s * 0.42;
+    if (blink) { ctx.strokeStyle = OUTLINE; ctx.lineWidth = Math.max(1.5, s * 0.1); ctx.beginPath(); ctx.moveTo(ex - s * 0.18, y); ctx.lineTo(ex + s * 0.18, y); ctx.stroke(); continue; }
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.ellipse(ex, y, s * 0.24, s * 0.3, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = OUTLINE; ctx.beginPath(); ctx.arc(ex + look * s * 0.08, y + s * 0.04, s * 0.15, 0, 7); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ex + look * s * 0.08 - s * 0.05, y - s * 0.04, s * 0.05, 0, 7); ctx.fill();
+  }
+}
+function blush(ctx, x, y, s) { ctx.fillStyle = 'rgba(255,90,120,.35)'; for (const dx of [-1, 1]) { ctx.beginPath(); ctx.ellipse(x + dx * s * 0.75, y + s * 0.32, s * 0.18, s * 0.1, 0, 0, 7); ctx.fill(); } }
+function flameShape(ctx, x, y, s, t, sx = 1, sy = 1) {
+  // 아래가 둥근 물방울 모양 불꽃 (y = 바닥 중심)
+  const wob = Math.sin(t * 7) * s * 0.06;
+  ctx.beginPath();
+  ctx.moveTo(x, y - s * 1.55 * sy);
+  ctx.bezierCurveTo(x + s * 0.35 * sx + wob, y - s * 1.05 * sy, x + s * 0.8 * sx, y - s * 0.75 * sy, x + s * 0.8 * sx, y - s * 0.38 * sy);
+  ctx.bezierCurveTo(x + s * 0.8 * sx, y, x + s * 0.35 * sx, y, x, y);
+  ctx.bezierCurveTo(x - s * 0.35 * sx, y, x - s * 0.8 * sx, y, x - s * 0.8 * sx, y - s * 0.38 * sy);
+  ctx.bezierCurveTo(x - s * 0.8 * sx, y - s * 0.8 * sy, x - s * 0.25 * sx + wob, y - s * 1.0 * sy, x, y - s * 1.55 * sy);
+  ctx.closePath();
+}
+function drawMascot(ctx, x, y, s, t) {
+  // 불꽃이: 탭할 때 찌그러졌다 튀어오름
+  const sq = squash; const sx = 1 + sq * 0.25, sy = 1 - sq * 0.22 + Math.sin(t * 3) * 0.03;
+  ctx.save();
+  ctx.shadowColor = 'rgba(255,120,40,.55)'; ctx.shadowBlur = 30;
+  let g = ctx.createLinearGradient(0, y - s * 1.6, 0, y);
+  g.addColorStop(0, '#ffd23f'); g.addColorStop(0.55, '#ff8c42'); g.addColorStop(1, '#ff5a2a');
+  flameShape(ctx, x, y, s, t, sx, sy); ctx.fillStyle = g; ctx.fill(); ctx.shadowBlur = 0;
+  ctx.lineWidth = Math.max(2, s * 0.06); ctx.strokeStyle = 'rgba(200,60,20,.55)'; ctx.stroke();
+  g = ctx.createLinearGradient(0, y - s, 0, y);
+  g.addColorStop(0, '#fff3b0'); g.addColorStop(1, '#ffd23f');
+  flameShape(ctx, x, y - s * 0.06, s * 0.55, t + 1, sx, sy); ctx.fillStyle = g; ctx.fill();
+  const blink = (t % 3.2) < 0.12;
+  eyes(ctx, x, y - s * 0.62 * sy, s * 0.55, Math.sin(t * 0.7), blink);
+  blush(ctx, x, y - s * 0.62 * sy, s * 0.55);
+  ctx.strokeStyle = OUTLINE; ctx.lineWidth = Math.max(1.5, s * 0.05); ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.arc(x, y - s * 0.42 * sy, s * (sq > 0.1 ? 0.12 : 0.09), 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
+  ctx.restore();
+}
+function drawHouse(ctx, x, y, w, h, t, warm) {
+  // 고객 집: 굴뚝 연기, 눈 쌓인 지붕, 수입이 늘수록 창문이 밝아짐
+  const bw = w, bh = h * 0.58, by = y - bh;
+  ctx.fillStyle = '#c0583a'; roundRect(ctx, x + bw * 0.62, by - h * 0.34, bw * 0.14, h * 0.24, 3); ctx.fill();
+  ctx.fillStyle = '#fff'; roundRect(ctx, x + bw * 0.6, by - h * 0.36, bw * 0.18, h * 0.05, 4); ctx.fill();
+  ctx.fillStyle = '#fff4e2'; roundRect(ctx, x, by, bw, bh, 10); ctx.fill();
+  ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(43,45,66,.12)'; ctx.stroke();
+  ctx.fillStyle = '#e8644a'; ctx.beginPath(); ctx.moveTo(x - bw * 0.1, by + 4); ctx.quadraticCurveTo(x + bw * 0.5, by - h * 0.62, x + bw * 1.1, by + 4); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.moveTo(x + bw * 0.08, by - h * 0.12); ctx.quadraticCurveTo(x + bw * 0.5, by - h * 0.5, x + bw * 0.92, by - h * 0.12);
+  ctx.quadraticCurveTo(x + bw * 0.5, by - h * 0.34, x + bw * 0.08, by - h * 0.12); ctx.fill();
+  for (let i = 0; i < 2; i++) {
+    const wx = x + bw * (0.14 + i * 0.46), wy = by + bh * 0.18, ww = bw * 0.3, wh = bh * 0.34;
+    const a = 0.25 + 0.75 * warm;
+    ctx.fillStyle = `rgba(255,${Math.round(214 + 20 * warm)},${Math.round(110 + 40 * warm)},${a})`;
+    ctx.shadowColor = '#ffcf5a'; ctx.shadowBlur = 24 * warm; roundRect(ctx, wx, wy, ww, wh, 6); ctx.fill(); ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(43,45,66,.18)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(wx + ww / 2, wy); ctx.lineTo(wx + ww / 2, wy + wh); ctx.moveTo(wx, wy + wh / 2); ctx.lineTo(wx + ww, wy + wh / 2); ctx.stroke();
+  }
+  ctx.fillStyle = '#b5653f'; roundRect(ctx, x + bw * 0.38, by + bh * 0.6, bw * 0.24, bh * 0.4, 8); ctx.fill();
+  if (MOTION && Math.random() < 0.05 + 0.1 * warm) smoke.push({ x: x + bw * 0.69, y: by - h * 0.36, r: 5, life: 2.4 });
+}
 function drawStage(dt) {
   const { ctx, w, h } = fitCanvas(stage, geom().h);
   const { hx, cx } = geom();
   const t = performance.now() / 1000;
+  squash = Math.max(0, squash - dt * 4);
   ctx.clearRect(0, 0, w, h);
-  // 배경: 가운데 벽 단면은 온도 그라데이션, 양쪽은 용광로/냉기
-  const bg = ctx.createLinearGradient(0, 0, w, 0);
-  bg.addColorStop(0, '#2a0b06'); bg.addColorStop(0.22, '#1d0f12'); bg.addColorStop(0.5, '#10121c'); bg.addColorStop(0.78, '#0b1626'); bg.addColorStop(1, '#06182e');
-  ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
-  const pulse = 0.85 + 0.15 * Math.sin(t * 2.2);
-  let g = ctx.createRadialGradient(hx * 0.45, h * 0.78, 10, hx * 0.45, h * 0.78, hx * 1.6);
-  g.addColorStop(0, `rgba(255,110,40,${0.55 * pulse})`); g.addColorStop(1, 'rgba(255,60,20,0)');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-  g = ctx.createRadialGradient(cx + (w - cx) * 0.55, h * 0.3, 10, cx + (w - cx) * 0.55, h * 0.3, (w - cx) * 1.6);
-  g.addColorStop(0, 'rgba(60,180,255,.35)'); g.addColorStop(1, 'rgba(40,120,255,0)');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-  // 벽 단면 경계선
-  ctx.strokeStyle = 'rgba(255,255,255,.08)'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(hx, 0); ctx.lineTo(hx, h); ctx.moveTo(cx, 0); ctx.lineTo(cx, h); ctx.stroke();
-  // 등온선 (점선)
-  ctx.setLineDash([2, 6]); ctx.strokeStyle = 'rgba(255,255,255,.05)';
-  for (let i = 1; i < 6; i++) { const x = hx + (cx - hx) * i / 6; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
-  ctx.setLineDash([]);
+  // 하늘: 왼쪽 노을(뜨거움) → 오른쪽 겨울 하늘(차가움). 햇빛 공식이 있으면 밤낮이 바뀜.
+  const night = has('solar') ? 1 - sunFactor() : 0;
+  const sky = ctx.createLinearGradient(0, 0, w, 0);
+  sky.addColorStop(0, '#ffcfa8'); sky.addColorStop(0.35, '#ffe7cf'); sky.addColorStop(0.62, '#e3f3ff'); sky.addColorStop(1, '#b6e0ff');
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, w, h);
+  if (night > 0) { ctx.fillStyle = `rgba(40,50,110,${0.28 * night})`; ctx.fillRect(w * 0.5, 0, w * 0.5, h); }
+  const ground = h * 0.86;
+  // 바닥: 왼쪽 따뜻한 흙 → 오른쪽 눈 (부드럽게 이어짐)
+  const gg = ctx.createLinearGradient(0, 0, w, 0);
+  gg.addColorStop(0, '#ffb27a'); gg.addColorStop(0.4, '#ffd2a8'); gg.addColorStop(0.6, '#f4f9ff'); gg.addColorStop(1, '#ffffff');
+  ctx.fillStyle = gg; ctx.beginPath(); ctx.moveTo(0, ground + 4); ctx.bezierCurveTo(w * 0.3, ground - 14, w * 0.7, ground + 10, w, ground - 4); ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 3; ctx.stroke();
 
-  // 용광로 (왼쪽)
-  const fw = hx * 0.78, fx = hx * 0.11, fy = h * 0.5, fh = h * 0.42;
-  ctx.fillStyle = '#1a0d0a'; roundRect(ctx, fx, fy, fw, fh, 14); ctx.fill();
-  ctx.strokeStyle = 'rgba(255,140,80,.25)'; ctx.lineWidth = 2; ctx.stroke();
-  const mouth = ctx.createLinearGradient(0, fy + fh * 0.25, 0, fy + fh * 0.9);
-  mouth.addColorStop(0, '#ff8a3c'); mouth.addColorStop(1, '#7a1d0c');
-  ctx.fillStyle = mouth; roundRect(ctx, fx + fw * 0.14, fy + fh * 0.3, fw * 0.72, fh * 0.56, 10); ctx.fill();
-  ctx.globalCompositeOperation = 'lighter';
-  for (let i = 0; i < 3; i++) flame(ctx, fx + fw * (0.3 + i * 0.2), fy + fh * 0.84, fw * 0.13, t, i);
-  ctx.globalCompositeOperation = 'source-over';
-  // 굴뚝
-  ctx.fillStyle = '#1a0d0a'; ctx.fillRect(fx + fw * 0.66, fy - fh * 0.42, fw * 0.16, fh * 0.44);
-  // 고객 건물 (오른쪽)
-  const bw = (w - cx) * 0.7, bx = cx + (w - cx) * 0.15, by = h * 0.5, bh = h * 0.42;
-  ctx.fillStyle = '#0c1a2e'; ctx.beginPath(); ctx.moveTo(bx - 6, by); ctx.lineTo(bx + bw / 2, by - bh * 0.32); ctx.lineTo(bx + bw + 6, by); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#10243e'; roundRect(ctx, bx, by, bw, bh, 6); ctx.fill();
-  ctx.strokeStyle = 'rgba(140,220,255,.25)'; ctx.lineWidth = 2; ctx.stroke();
-  const warm = Math.min(1, Math.log10(1 + heatRate()) / 8);
-  for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++) {
-    const wx = bx + bw * (0.16 + c * 0.44), wy = by + bh * (0.14 + r * 0.42);
-    ctx.fillStyle = `rgba(255,${190 + 40 * warm},${110 + 60 * warm},${0.25 + 0.65 * warm * (0.9 + 0.1 * Math.sin(t * 3 + r + c))})`;
-    ctx.shadowColor = '#ffcf7a'; ctx.shadowBlur = 14 * warm; roundRect(ctx, wx, wy, bw * 0.28, bh * 0.26, 3); ctx.fill(); ctx.shadowBlur = 0;
+  // 해 / 달
+  if (has('solar')) {
+    const s = sunFactor(), ang = (simT % 60) / 60;
+    if (ang < 0.5) {
+      const R = Math.min(26, w * 0.05), sx = w * 0.6 + (w * 0.4 - R * 2) * (ang * 2), sy = R + 10 + (1 - s) * h * 0.06;
+      ctx.save(); ctx.translate(sx, sy); ctx.rotate(t * 0.4);
+      ctx.fillStyle = '#ffd23f'; for (let i = 0; i < 10; i++) { ctx.rotate(Math.PI / 5); ctx.beginPath(); roundRect(ctx, R + 3, -3, R * 0.45, 6, 3); ctx.fill(); }
+      ctx.restore();
+      ctx.fillStyle = '#ffd23f'; ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 20; ctx.beginPath(); ctx.arc(sx, sy, R, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
+      eyes(ctx, sx, sy - R * 0.1, R * 0.7, 0, (t % 4) < 0.12); blush(ctx, sx, sy - R * 0.1, R * 0.7);
+    } else { ctx.fillStyle = '#fff6c9'; ctx.beginPath(); ctx.arc(w - 40, 40, 16, 0, 7); ctx.fill(); ctx.fillStyle = 'rgba(120,130,190,.9)'; ctx.beginPath(); ctx.arc(w - 33, 35, 14, 0, 7); ctx.fill(); }
   }
-  // 파티클: 불씨 / 눈
-  if (MOTION && embers.length < 40 && Math.random() < 0.6) embers.push({ x: fx + Math.random() * fw, y: fy + fh * 0.4, vy: -(25 + Math.random() * 45), life: 1.2 + Math.random() * 1.6, s: 1 + Math.random() * 2 });
-  if (MOTION && snow.length < 40 && Math.random() < 0.5) snow.push({ x: cx + Math.random() * (w - cx), y: -5, vy: 18 + Math.random() * 25, ph: Math.random() * 6, s: 1 + Math.random() * 1.8 });
-  ctx.globalCompositeOperation = 'lighter';
-  embers = embers.filter(e => (e.life -= dt) > 0);
-  embers.forEach(e => { e.y += e.vy * dt; e.x += Math.sin(t * 3 + e.y * 0.05) * 12 * dt; ctx.fillStyle = `rgba(255,${120 + 100 * Math.random()},40,${Math.min(1, e.life)})`; ctx.beginPath(); ctx.arc(e.x, e.y, e.s, 0, 7); ctx.fill(); });
-  ctx.globalCompositeOperation = 'source-over';
-  snow = snow.filter(s => s.y < h);
-  snow.forEach(s => { s.y += s.vy * dt; s.x += Math.sin(t + s.ph) * 10 * dt; ctx.fillStyle = 'rgba(200,240,255,.75)'; ctx.beginPath(); ctx.arc(s.x, s.y, s.s, 0, 7); ctx.fill(); });
+  // 눈송이 · 연기
+  if (MOTION && snow.length < 34 && Math.random() < 0.35) snow.push({ x: w * 0.55 + Math.random() * w * 0.45, y: -6, vy: 16 + Math.random() * 20, ph: Math.random() * 6, s: 1.5 + Math.random() * 2.2 });
+  snow = snow.filter(s => s.y < ground + 10);
+  ctx.fillStyle = '#fff'; snow.forEach(s => { s.y += s.vy * dt; s.x += Math.sin(t + s.ph) * 12 * dt; ctx.beginPath(); ctx.arc(s.x, s.y, s.s, 0, 7); ctx.fill(); });
+  smoke = smoke.filter(p => (p.life -= dt) > 0);
+  smoke.forEach(p => { p.y -= 18 * dt; p.x += 8 * dt; p.r += 6 * dt; ctx.fillStyle = `rgba(255,255,255,${Math.min(0.8, p.life / 2.4)})`; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill(); });
 
-  // 푸리에 막대 (병렬이면 여러 개)
-  const Nall = has('parallel') ? P('parallel', 'N') : 1, N = Math.min(8, Nall);
-  const k = P('fourier', 'k');
-  const top = h * 0.30, bot = h * 0.74, gap = (bot - top) / N;
-  const thick = Math.max(6, Math.min(gap * 0.62, 10 + 40 / P('fourier', 'dx') * 0.05));
-  const rods = [];
+  // 고객 집
+  const warm = Math.min(1, Math.log10(1 + heatRate()) / 7);
+  const hw = Math.min((w - cx) * 0.84, 160), hh = hw * 1.1, houseX = cx + (w - cx - hw) / 2 + 2;
+  drawHouse(ctx, houseX, ground + 2, hw, hh, t, warm);
+
+  // 받침대 + 불꽃이
+  const ms = Math.min(hx * 0.5, 84);
+  ctx.fillStyle = '#7a4a3a'; roundRect(ctx, hx * 0.5 - ms * 0.95, ground - ms * 0.28, ms * 1.9, ms * 0.42, 12); ctx.fill();
+  ctx.fillStyle = '#9b6150'; roundRect(ctx, hx * 0.5 - ms * 0.95, ground - ms * 0.28, ms * 1.9, ms * 0.14, 8); ctx.fill();
+  drawMascot(ctx, hx * 0.5, ground - ms * 0.26, ms, t);
+  if (MOTION && embers.length < 24 && Math.random() < 0.4) embers.push({ x: hx * 0.5 + (Math.random() - 0.5) * ms, y: ground - ms * 1.2, vy: -(30 + Math.random() * 40), life: 1 + Math.random(), s: 1.5 + Math.random() * 2 });
+  embers = embers.filter(e => (e.life -= dt) > 0);
+  embers.forEach(e => { e.y += e.vy * dt; e.x += Math.sin(t * 4 + e.y * 0.05) * 14 * dt; ctx.fillStyle = `rgba(255,${140 + Math.round(80 * e.life / 2)},60,${Math.min(1, e.life)})`; ctx.beginPath(); ctx.arc(e.x, e.y, e.s, 0, 7); ctx.fill(); });
+
+  // 파이프 (푸리에 막대, 병렬이면 여러 개)
+  const Nall = has('parallel') ? P('parallel', 'N') : 1, N = Math.min(6, Nall);
+  const top = h * 0.36, bot = Math.min(h * 0.76, ground - hh * 0.12), gap = (bot - top) / N;
+  const kL = lvl('fourier', 'k');
+  const thick = Math.max(9, Math.min(gap * 0.5, 14 + kL * 1.2 + lvl('fourier', 'A') * 0.15));
   const sL = has('series') ? lvl('series', 'Rt') : 0;
+  const px0 = hx * 0.5 + ms * 0.55, px1 = houseX + hw * 0.1;
+  const rods = [];
   for (let i = 0; i < N; i++) {
     const y = top + gap * (i + 0.5); rods.push(y);
-    // 직렬 단열 피복 (층마다 한 겹)
-    for (let j = sL; j >= 1; j--) { ctx.fillStyle = `rgba(255,${220 - j * 8},${120 + j * 10},${0.07 + 0.03 * j})`; roundRect(ctx, hx + 2, y - thick / 2 - j * 2.6, cx - hx - 4, thick + j * 5.2, 4 + j); ctx.fill(); }
-    const rg = ctx.createLinearGradient(hx, 0, cx, 0);
-    rg.addColorStop(0, '#ff6a2c'); rg.addColorStop(0.5, MAT_COL[k] || '#aaa'); rg.addColorStop(1, '#3aa6ff');
-    ctx.shadowColor = 'rgba(255,120,50,.6)'; ctx.shadowBlur = 12;
-    ctx.fillStyle = rg; roundRect(ctx, hx, y - thick / 2, cx - hx, thick, Math.min(6, thick / 2)); ctx.fill(); ctx.shadowBlur = 0;
-    ctx.fillStyle = 'rgba(255,255,255,.28)'; ctx.fillRect(hx + 4, y - thick / 2 + 1.5, cx - hx - 8, Math.max(1, thick * 0.18));
+    if (sL) { // 직렬 단열: 노란 솜 슬리브, 층이 늘수록 두꺼워짐
+      const pad = 3 + sL * 2.2;
+      ctx.fillStyle = '#ffe58a'; roundRect(ctx, px0 + 18, y - thick / 2 - pad, px1 - px0 - 36, thick + pad * 2, (thick + pad * 2) / 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(214,160,0,.5)'; ctx.lineWidth = 2; ctx.setLineDash([3, 6]); ctx.stroke(); ctx.setLineDash([]);
+    }
+    const rg = ctx.createLinearGradient(px0, 0, px1, 0);
+    rg.addColorStop(0, '#ff7a45'); rg.addColorStop(0.5, '#ffc06b'); rg.addColorStop(1, '#5bb8ff');
+    ctx.fillStyle = rg; roundRect(ctx, px0, y - thick / 2, px1 - px0, thick, thick / 2); ctx.fill();
+    ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(43,45,66,.18)'; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,.55)'; roundRect(ctx, px0 + thick / 2, y - thick / 2 + 2.5, px1 - px0 - thick, Math.max(2, thick * 0.2), 2); ctx.fill();
   }
-  pill(ctx, `${FMAP.fourier.params[0].names[lvl('fourier', 'k')]} · k=${k}${Nall > 1 ? ` · 막대 ${Nall}개${Nall > N ? ' (8개 표시)' : ''}` : ''}`, (hx + cx) / 2, bot + 16 + sL * 2.6, '#ffe2b8');
-  // 열교 슬래브
+  if (Nall > N) { ctx.fillStyle = 'rgba(43,45,66,.55)'; ctx.font = '700 12px Pretendard, sans-serif'; ctx.textAlign = 'center'; ctx.fillText(`×${Nall}`, (px0 + px1) / 2, bot + 14); }
+
+  // 열교 슬래브 (위쪽 콘크리트 보) — 해금 전에는 몰래 새는 열이 보임
   {
-    const b = beta(), sy = h * 0.13;
-    ctx.fillStyle = '#5b606c'; roundRect(ctx, hx, sy, cx - hx, 9, 3); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,.15)'; ctx.fillRect(hx, sy, cx - hx, 2);
-    const lg = ctx.createRadialGradient(cx, sy + 4, 1, cx, sy + 4, 8 + b * 90);
-    lg.addColorStop(0, `rgba(255,120,60,${Math.min(.9, b * 4)})`); lg.addColorStop(1, 'rgba(255,80,40,0)');
-    ctx.fillStyle = lg; ctx.beginPath(); ctx.arc(cx, sy + 4, 8 + b * 90, 0, 7); ctx.fill();
-    pill(ctx, has('bridge') ? `열교 슬래브 · 누설 ${(b * 100).toFixed(0)}%` : '? 슬래브에서 열이 새는 것 같은데…', (hx + cx) / 2, sy - 12, has('bridge') ? '#ffd0b0' : '#ff9a8a');
+    const b = beta(), sy = h * 0.24;
+    ctx.fillStyle = '#c9c6d3'; roundRect(ctx, px0, sy - 6, px1 - px0, 12, 6); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.6)'; roundRect(ctx, px0 + 6, sy - 4, px1 - px0 - 12, 3, 2); ctx.fill();
+    if (MOTION && Math.random() < b * 0.5) sparks.push({ x: px0 + Math.random() * (px1 - px0), y: sy, vx: 0, vy: -20, life: 0.8, c: '#ff8c42', r: 3, leak: true });
+    if (!has('bridge')) { // 느낌표 말풍선
+      const bx = px1 - 10, by = sy - 26 + Math.sin(t * 4) * 2;
+      ctx.fillStyle = '#ff4d6d'; ctx.beginPath(); ctx.arc(bx, by, 11, 0, 7); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.font = '800 14px Pretendard, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('!', bx, by + 1); ctx.textBaseline = 'alphabetic';
+    }
   }
-  // 열 입자 (발광 + 꼬리)
+  // 열 방울 (눈 달린 작은 불씨)
   const inc = heatRate();
-  const want = Math.min(160, Math.round(6 + 14 * Math.log10(1 + inc)));
-  const speed = 60 + 30 * Math.log10(1 + inc);
-  if (parts.length < want && Math.random() < 0.5) parts.push({ x: hx, r: Math.floor(Math.random() * N), leak: Math.random() < (1 - eta()) * 0.6, vy: 0, y: 0 });
-  parts = parts.filter(p => p.x < cx && p.y < h);
-  ctx.globalCompositeOperation = 'lighter';
+  const want = Math.min(70, Math.round(4 + 8 * Math.log10(1 + inc)));
+  const speed = 70 + 28 * Math.log10(1 + inc);
+  if (parts.length < want && Math.random() < 0.4) parts.push({ x: px0, r: Math.floor(Math.random() * N), leak: Math.random() < (1 - eta()) * 0.6, vy: 0, y: 0, ph: Math.random() * 6 });
+  parts = parts.filter(p => p.x < px1 - 6 && p.y < h);
   parts.forEach(p => {
     const ry = rods[p.r % rods.length];
     p.x += speed * dt;
-    if (p.leak && p.x > (hx + cx) / 2) { p.vy += 200 * dt; p.y += p.vy * dt; }
-    const u = (p.x - hx) / (cx - hx);
-    const col = p.leak && p.y > 0 ? '255,90,70' : `255,${Math.round(200 + 40 * u)},${Math.round(80 + 140 * u)}`;
-    const pg = ctx.createRadialGradient(p.x, ry + p.y, 0, p.x, ry + p.y, 8);
-    pg.addColorStop(0, `rgba(${col},1)`); pg.addColorStop(1, `rgba(${col},0)`);
-    ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(p.x, ry + p.y, 8, 0, 7); ctx.fill();
-    ctx.fillStyle = `rgba(${col},.25)`; ctx.fillRect(p.x - 18, ry + p.y - 1, 16, 2);
+    if (p.leak && p.x > (px0 + px1) / 2) { p.vy += 220 * dt; p.y += p.vy * dt; }
+    const u = (p.x - px0) / (px1 - px0), R = Math.min(7, thick * 0.42) + 1;
+    const yy = ry + p.y + Math.sin(t * 10 + p.ph) * 1.2;
+    ctx.fillStyle = p.leak && p.y > 0 ? '#ff6b6b' : `rgb(255,${Math.round(150 + 80 * u)},${Math.round(60 + 120 * u)})`;
+    ctx.beginPath(); ctx.arc(p.x, yy, R, 0, 7); ctx.fill();
+    ctx.fillStyle = OUTLINE; ctx.beginPath(); ctx.arc(p.x + R * 0.35, yy - R * 0.15, R * 0.18, 0, 7); ctx.arc(p.x - R * 0.2, yy - R * 0.15, R * 0.18, 0, 7); ctx.fill();
   });
-  ctx.globalCompositeOperation = 'source-over';
-  // 대류 팬
+  // 대류 선풍기 (왼쪽 위)
   if (has('conv')) {
-    const hL = lvl('conv', 'h'), fx2 = hx * 0.5, fy2 = h * 0.2, R = 20;
-    ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.arc(fx2, fy2, R + 6, 0, 7); ctx.fill();
-    ctx.save(); ctx.translate(fx2, fy2); ctx.rotate(t * (1 + hL * 3));
-    ctx.fillStyle = hL >= 3 ? '#7fe0ff' : '#e6e9f2';
-    for (let i = 0; i < 3; i++) { ctx.rotate(Math.PI * 2 / 3); ctx.beginPath(); ctx.ellipse(R / 2, 0, R / 2, 6, 0.3, 0, Math.PI * 2); ctx.fill(); }
-    ctx.restore();
-    pill(ctx, FMAP.conv.params[0].names[hL], fx2, fy2 + R + 18);
+    const hL = lvl('conv', 'h'), fx2 = hx * 0.5, fy2 = h * 0.17, R = Math.min(22, hx * 0.14);
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(fx2, fy2, R + 6, 0, 7); ctx.fill();
+    ctx.strokeStyle = 'rgba(43,45,66,.12)'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.save(); ctx.translate(fx2, fy2); ctx.rotate(t * (1.5 + hL * 3));
+    ctx.fillStyle = hL >= 3 ? '#3fa7ff' : '#ff8fb1';
+    for (let i = 0; i < 3; i++) { ctx.rotate(Math.PI * 2 / 3); ctx.beginPath(); ctx.ellipse(R * 0.5, 0, R * 0.5, R * 0.26, 0.3, 0, 7); ctx.fill(); }
+    ctx.restore(); ctx.fillStyle = '#2b2d42'; ctx.beginPath(); ctx.arc(fx2, fy2, 3.5, 0, 7); ctx.fill();
   }
-  // 복사판
+  // 복사판 (가운데 위): 온도가 오를수록 빨강 → 노랑 → 흰색
   if (has('rad')) {
-    const T = P('rad', 'T');
-    const c = T < 800 ? `rgb(${Math.round(110 + (T - 400) / 3)},40,30)` : T < 1500 ? `rgb(255,${Math.round((T - 800) / 4)},40)` : `rgb(255,${Math.round(Math.min(255, 175 + (T - 1500) / 10))},${Math.round(Math.min(255, (T - 1500) / 6))})`;
-    const rx = w * 0.5, ry = h * 0.215;
-    ctx.shadowColor = c; ctx.shadowBlur = 14 + Math.min(50, (T - 400) / 40);
-    ctx.fillStyle = c; roundRect(ctx, rx - 52, ry - 9, 104, 18, 6); ctx.fill(); ctx.shadowBlur = 0;
-    ctx.fillStyle = T < 1500 ? 'rgba(255,240,220,.95)' : '#3a1400'; ctx.font = '800 11px Pretendard, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(`복사판 ${T} K`, rx, ry + 0.5); ctx.textBaseline = 'alphabetic';
-    if (MOTION) { ctx.strokeStyle = c; ctx.globalAlpha = 0.35; for (let i = 0; i < 3; i++) { const r = ((t * 30 + i * 12) % 36); ctx.beginPath(); ctx.moveTo(rx - 48, ry + 12 + r); ctx.lineTo(rx + 48, ry + 12 + r); ctx.stroke(); } ctx.globalAlpha = 1; }
+    const T = P('rad', 'T'), u = Math.min(1, (T - 400) / 2200);
+    const col = u < 0.3 ? `rgb(${Math.round(200 + 180 * u)},${Math.round(70 + 100 * u)},60)` : u < 0.7 ? `rgb(255,${Math.round(130 + 150 * (u - 0.3))},70)` : `rgb(255,${Math.round(220 + 80 * (u - 0.7))},${Math.round(120 + 400 * (u - 0.7))})`;
+    const rx = w * 0.5, ry = h * 0.11, rw = Math.min(90, w * 0.16);
+    ctx.shadowColor = col; ctx.shadowBlur = 16 + 30 * u; ctx.fillStyle = col; roundRect(ctx, rx - rw / 2, ry - 8, rw, 16, 8); ctx.fill(); ctx.shadowBlur = 0;
+    if (MOTION) { ctx.strokeStyle = col; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; for (let i = -1; i <= 1; i++) { const ph = (t * 1.5 + i * 0.3) % 1; ctx.globalAlpha = 1 - ph; ctx.beginPath(); for (let k = 0; k <= 8; k++) { const xx = rx + i * rw * 0.3 + Math.sin(k * 1.2 + t * 6) * 3, yy = ry + 12 + ph * 20 + k * 1.6; k ? ctx.lineTo(xx, yy) : ctx.moveTo(xx, yy); } ctx.stroke(); } ctx.globalAlpha = 1; ctx.lineCap = 'butt'; }
   }
-  // 태양
-  if (has('solar')) {
-    const s = sunFactor(), ang = (simT % 60) / 60;
-    const sx = cx + (w - cx) * (0.15 + 0.7 * Math.min(1, ang * 2)), sy = 24 + (1 - s) * 34;
-    if (ang < 0.5) {
-      const sg = ctx.createRadialGradient(sx, sy, 2, sx, sy, 36); sg.addColorStop(0, 'rgba(255,240,150,1)'); sg.addColorStop(0.35, 'rgba(255,200,60,.9)'); sg.addColorStop(1, 'rgba(255,160,40,0)');
-      ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(sx, sy, 36, 0, 7); ctx.fill();
-    } else { ctx.fillStyle = '#e8eefc'; ctx.beginPath(); ctx.arc(w - 30, 28, 10, 0, 7); ctx.fill(); ctx.fillStyle = '#06182e'; ctx.beginPath(); ctx.arc(w - 25, 25, 9, 0, 7); ctx.fill(); }
-    pill(ctx, `일사 ${(P('solar', 'qpk') * s).toFixed(0)} W/m²`, (cx + w) / 2, 76, '#ffe9a8');
-  }
-  // 응축기
+  // 이슬점 응축기 (가운데 아래): 이슬점보다 차가우면 물방울이 똑똑
   if (has('cond')) {
-    const wr = rawOut(FMAP.cond), bx2 = w * 0.5, by2 = h * 0.93;
-    ctx.strokeStyle = '#4fd1ff'; ctx.lineWidth = 3; ctx.shadowColor = '#4fd1ff'; ctx.shadowBlur = 8; ctx.beginPath();
-    for (let i = 0; i <= 6; i++) { const x = bx2 - 66 + i * 22; i ? ctx.lineTo(x, by2 - 12 + (i % 2) * 10) : ctx.moveTo(x, by2 - 12); }
-    ctx.stroke(); ctx.shadowBlur = 0;
-    if (wr > 0 && Math.random() < Math.min(0.6, 0.05 + Math.log10(1 + wr) * 0.1)) drops.push({ x: bx2 - 60 + Math.random() * 120, y: by2 });
-    ctx.fillStyle = '#7fe0ff';
-    drops = drops.filter(d => d.y < h); drops.forEach(d => { d.y += 90 * dt; ctx.beginPath(); ctx.moveTo(d.x, d.y - 5); ctx.quadraticCurveTo(d.x + 3, d.y, d.x, d.y + 2); ctx.quadraticCurveTo(d.x - 3, d.y, d.x, d.y - 5); ctx.fill(); });
-    pill(ctx, wr > 0 ? '💧 응축 중' : '이슬점보다 따뜻해서 물이 안 나와요', bx2, by2 - 26, '#bff0ff');
+    const wr = rawOut(FMAP.cond), bx2 = w * 0.5, by2 = h * 0.86;
+    ctx.strokeStyle = wr > 0 ? '#3fa7ff' : '#b9c3d6'; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath();
+    for (let i = 0; i <= 6; i++) { const x = bx2 - 54 + i * 18; i ? ctx.lineTo(x, by2 - 12 + (i % 2) * 10) : ctx.moveTo(x, by2 - 12); }
+    ctx.stroke(); ctx.lineCap = 'butt';
+    ctx.fillStyle = '#5ab0ff'; roundRect(ctx, bx2 - 22, by2 + 12, 44, 20, 6); ctx.fill();
+    if (wr > 0 && Math.random() < Math.min(0.5, 0.06 + Math.log10(1 + wr) * 0.1)) drops.push({ x: bx2 - 48 + Math.random() * 96, y: by2 });
+    drops = drops.filter(d => d.y < by2 + 14); ctx.fillStyle = '#3fa7ff';
+    drops.forEach(d => { d.y += 70 * dt; d.x += (bx2 - d.x) * dt * 2; ctx.beginPath(); ctx.moveTo(d.x, d.y - 6); ctx.quadraticCurveTo(d.x + 4, d.y, d.x, d.y + 2.5); ctx.quadraticCurveTo(d.x - 4, d.y, d.x, d.y - 6); ctx.fill(); });
+    if (wr <= 0) { ctx.fillStyle = 'rgba(43,45,66,.5)'; ctx.font = '800 13px Pretendard, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('?', bx2, by2 - 22 + Math.sin(t * 3) * 2); }
   }
-  // 구역 라벨
-  pill(ctx, w < 500 ? '🔥 고온' : '🔥 고온 T_h', hx / 2, h - 14, '#ffd0b0', 'rgba(60,15,5,.7)', '800 12px Pretendard, sans-serif');
-  pill(ctx, w < 500 ? '❄️ 저온' : '❄️ 저온 → 고객', (cx + w) / 2, h - 14, '#cdeeff', 'rgba(5,25,50,.7)', '800 12px Pretendard, sans-serif');
-  // 클릭 파문 · 불꽃 튐
+  // 탭 파문 · 불꽃
   ripples = ripples.filter(r => (r.life -= dt) > 0);
-  ripples.forEach(r => { ctx.strokeStyle = `rgba(255,210,120,${r.life * 2})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(r.x, r.y, (0.5 - r.life) * 90 + 6, 0, 7); ctx.stroke(); });
+  ripples.forEach(r => { ctx.strokeStyle = `rgba(255,140,60,${r.life * 2})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(r.x, r.y, (0.5 - r.life) * 80 + 8, 0, 7); ctx.stroke(); });
   sparks = sparks.filter(s => (s.life -= dt) > 0);
-  ctx.globalCompositeOperation = 'lighter';
-  sparks.forEach(s => { s.vy += 300 * dt; s.x += s.vx * dt; s.y += s.vy * dt; ctx.globalAlpha = Math.min(1, s.life * 2); ctx.fillStyle = s.c; ctx.beginPath(); ctx.arc(s.x, s.y, 2.2, 0, 7); ctx.fill(); });
-  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
-  // 떠오르는 숫자 (외곽선)
+  sparks.forEach(s => { if (!s.leak) s.vy += 380 * dt; s.x += s.vx * dt; s.y += s.vy * dt; ctx.globalAlpha = Math.min(1, s.life * 2); ctx.fillStyle = s.c; ctx.beginPath(); ctx.arc(s.x, s.y, s.r || 2.5, 0, 7); ctx.fill(); });
+  ctx.globalAlpha = 1;
+  // 떠오르는 숫자: 흰 테두리 + 주황 글씨
   floats = floats.filter(f => f.life > 0);
   floats.forEach(f => {
-    f.y -= 46 * dt; f.life -= dt; const sc = 1 + Math.max(0, f.life - (f.max || 1) + 0.15) * 3;
-    ctx.globalAlpha = Math.min(1, f.life * 1.5); ctx.font = `${f.big ? 22 : 17}px "Black Han Sans", Pretendard, sans-serif`; ctx.textAlign = 'center';
+    f.y -= 50 * dt; f.life -= dt; const age = (f.max || 1) - f.life, sc = age < 0.12 ? 0.6 + age / 0.12 * 0.6 : 1.2 - Math.min(0.2, (age - 0.12) * 2);
+    ctx.globalAlpha = Math.min(1, f.life * 2); ctx.textAlign = 'center';
     ctx.save(); ctx.translate(f.x, f.y); ctx.scale(sc, sc);
-    ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(20,8,0,.85)'; ctx.strokeText(f.t, 0, 0); ctx.fillStyle = f.c || '#ffd36b'; ctx.fillText(f.t, 0, 0);
+    ctx.font = `${f.big ? 26 : 20}px Jua, "Pretendard Variable", sans-serif`; ctx.lineJoin = 'round';
+    ctx.lineWidth = 6; ctx.strokeStyle = '#fff'; ctx.strokeText(f.t, 0, 0); ctx.fillStyle = f.c || '#ff6b35'; ctx.fillText(f.t, 0, 0);
     ctx.restore(); ctx.globalAlpha = 1;
   });
-  // 고온 덩어리
+  // 처음 시작 안내 (탭 3번 전까지)
+  if (G.clicks < 3 && !blob) {
+    const bx = hx * 0.5 + 20, by = ground - ms * 1.9 - 14 + Math.sin(t * 5) * 5;
+    ctx.fillStyle = '#2b2d42'; roundRect(ctx, bx - 34, by - 16, 68, 32, 16); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(bx - 6, by + 15); ctx.lineTo(bx, by + 23); ctx.lineTo(bx + 6, by + 15); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = '17px Jua, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('탭!', bx, by + 1); ctx.textBaseline = 'alphabetic';
+  }
+  // 불덩이 (끌어서 집으로)
   if (blob) {
     blob.life -= dt;
     if (blob.life <= 0 && !drag) { blob = null; }
     else {
-      if (drag) {
-        const zg = ctx.createLinearGradient(cx, 0, w, 0); zg.addColorStop(0, 'rgba(80,200,255,.0)'); zg.addColorStop(1, `rgba(80,200,255,${0.18 + 0.08 * Math.sin(t * 8)})`);
-        ctx.fillStyle = zg; ctx.fillRect(cx, 0, w - cx, h);
-        ctx.setLineDash([6, 6]); ctx.strokeStyle = 'rgba(159,220,255,.7)'; ctx.lineWidth = 2; ctx.strokeRect(cx + 2, 2, w - cx - 4, h - 4); ctx.setLineDash([]);
+      const hx0 = houseX;
+      if (drag) { ctx.strokeStyle = `rgba(63,167,255,${0.5 + 0.3 * Math.sin(t * 8)})`; ctx.lineWidth = 4; ctx.setLineDash([8, 8]); roundRect(ctx, hx0 - 12, ground - hh * 1.05, hw + 24, hh * 1.05 + 4, 18); ctx.stroke(); ctx.setLineDash([]); }
+      const R = 27 + Math.sin(t * 6) * 1.5;
+      ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.arc(blob.x, blob.y - R * 0.4, R + 12, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, blob.life) / 12); ctx.stroke(); ctx.lineCap = 'butt';
+      const saved = squash; squash = drag ? 0.3 : 0; drawMascot(ctx, blob.x, blob.y + R * 0.5, R, t * 1.5); squash = saved;
+      if (!drag) { // 화살표 힌트
+        const ax = blob.x + R + 18 + Math.sin(t * 6) * 4;
+        ctx.fillStyle = '#3fa7ff'; ctx.beginPath(); ctx.moveTo(ax, blob.y - 8); ctx.lineTo(ax + 14, blob.y); ctx.lineTo(ax, blob.y + 8); ctx.fill();
+        ctx.fillRect(ax - 12, blob.y - 3, 12, 6);
+        ctx.fillStyle = 'rgba(63,167,255,.9)'; ctx.font = '22px sans-serif'; ctx.fillText('🏠', ax + 30, blob.y + 8);
       }
-      const R = 22 + Math.sin(t * 6) * 2;
-      const og = ctx.createRadialGradient(blob.x, blob.y, 2, blob.x, blob.y, R * 1.9);
-      og.addColorStop(0, 'rgba(255,245,200,1)'); og.addColorStop(0.35, 'rgba(255,150,50,.95)'); og.addColorStop(1, 'rgba(255,60,20,0)');
-      ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = og; ctx.beginPath(); ctx.arc(blob.x, blob.y, R * 1.9, 0, 7); ctx.fill(); ctx.globalCompositeOperation = 'source-over';
-      ctx.strokeStyle = '#ffd36b'; ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.beginPath(); ctx.arc(blob.x, blob.y, R + 8, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, blob.life) / 12); ctx.stroke(); ctx.lineCap = 'butt';
-      pill(ctx, drag ? '❄️ 오른쪽에 놓으세요!' : '👆 끌어서 차가운 쪽으로', blob.x, blob.y - R - 22, '#2a1600', 'rgba(255,211,107,.95)', '800 12px Pretendard, sans-serif');
     }
   }
 }
 function stagePos(e) { const r = stage.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
 stage.addEventListener('pointerdown', (e) => {
   const p = stagePos(e);
-  if (blob && Math.hypot(p.x - blob.x, p.y - blob.y) < 34) { drag = true; stage.setPointerCapture(e.pointerId); return; }
+  if (blob && Math.hypot(p.x - blob.x, p.y - blob.y) < 44) { drag = true; stage.setPointerCapture(e.pointerId); return; }
   const v = clickValue();
   earn(v); G.clicks++;
-  floats.push({ x: p.x, y: p.y - 10, t: '+' + fJ(v), life: 1, max: 1 });
-  ripples.push({ x: p.x, y: p.y, life: 0.5 }); burst(p.x, p.y, 7);
+  floats.push({ x: p.x, y: p.y - 14, t: '+' + fJ(v), life: 1, max: 1 });
+  ripples.push({ x: p.x, y: p.y, life: 0.5 }); burst(p.x, p.y, 7); squash = 1;
   for (let i = 0; i < 3; i++) parts.push({ x: geom().hx, r: Math.floor(Math.random() * 8), leak: false, vy: 0, y: 0 });
 });
 stage.addEventListener('pointermove', (e) => { if (drag && blob) { const p = stagePos(e); blob.x = p.x; blob.y = p.y; } });
@@ -526,18 +584,18 @@ stage.addEventListener('pointerup', (e) => {
   const { hx, cx } = geom();
   if (blob.x > cx) {
     const r = Math.max(50, 20 * incomeJ());
-    earn(r); floats.push({ x: blob.x, y: blob.y, t: '+' + fJ(r) + ' 보너스!', life: 1.6, max: 1.6, big: true, c: '#4ee6a6' });
-    burst(blob.x, blob.y, 30, '#8be3ff'); burst(blob.x, blob.y, 20); shake();
+    earn(r); floats.push({ x: blob.x, y: blob.y, t: '+' + fJ(r) + ' 보너스!', life: 1.6, max: 1.6, big: true, c: '#2ec27e' });
+    burst(blob.x, blob.y, 30, '#8fd3ff'); burst(blob.x, blob.y, 20); shake();
     log(`🔥→❄️ 고온 덩어리 배달 성공 +${fJ(r)} (열은 고온에서 저온으로!)`);
     blob = null;
   } else if (blob.x < hx) {
-    floats.push({ x: blob.x, y: blob.y, t: '그쪽은 원래 자리예요', life: 1.2, c: '#ff5d6c' });
+    floats.push({ x: blob.x, y: blob.y, t: '집 쪽으로!', life: 1.2, max: 1.2, c: '#ff4d6d' });
   }
 });
 function spawnBlob() {
   if (blob) return;
   const { hx, h } = geom();
-  blob = { x: hx * 0.5, y: geom().h * (0.3 + Math.random() * 0.4), life: 12 };
+  blob = { x: hx * 0.95, y: h * (0.32 + Math.random() * 0.3), life: 12 };
 }
 
 /* ---------------- 토스트 / 로그 / 모달 ---------------- */
@@ -714,20 +772,25 @@ function drawGlaser(cv, c) {
 
 /* ---------------- 도감 / 도움말 ---------------- */
 $('#btnDex').onclick = () => {
-  showModal(`<h2>📖 공식 도감</h2><p style="color:var(--muted);font-size:13px">해금한 공식 ${G.unlocked.length} / ${FORMULAS.length}</p>` + FORMULAS.map(f => has(f.id)
-    ? `<div class="dex-item"><h4>${look(f)[0]} ${f.name} <span style="font-size:11px;color:var(--muted)">${f.tag}</span></h4><div class="formula">${tex(f.tex)}</div><p>${f.desc}</p></div>`
-    : `<div class="dex-item locked"><h4>🔒 ??? (${fJ(f.cost)})</h4></div>`).join(''));
+  showModal(`<h2>📖 공식 도감 <span style="font-size:16px;color:var(--muted)">${G.unlocked.length} / ${FORMULAS.length}</span></h2>` + FORMULAS.map(f => has(f.id)
+    ? `<div class="dex-item" data-dex="${f.id}" style="${cssVars(f)}"><div class="badge">${look(f)[0]}</div><div><div class="t">${look(f)[3]} · ${f.name.replace(/ \(.*\)/, '')}</div><div class="eq">${texI(mainTex(f))}</div></div></div>`
+    : `<div class="dex-item locked"><div class="badge" style="background:#ddd">🔒</div><div><div class="t">???</div><div class="eq">🔥 ${fJ(f.cost)}</div></div></div>`).join(''));
+  $$('[data-dex]').forEach(d => d.onclick = () => infoModal(FMAP[d.dataset.dex]));
 };
-$('#btnHelp').onclick = () => showHelp();
+
 function showHelp() {
   showModal(`<h2>🔥 열공장 타이쿤</h2>
-    <p>당신은 열을 배달해 파는 열공장 사장이에요. <b>돈 = 열에너지 J(줄)</b>, 수입은 <b>W = J/s</b> 예요.</p>
-    <p>① 가운데 벽을 <b>클릭</b>하면 열이 넘어가며 돈이 들어와요.<br>
-    ② 오른쪽 <b>공식 카드</b>가 자동으로 돈을 벌어요. 변수(k, ΔT, Δx, A…)를 업그레이드하면 공식대로 출력이 바뀌어요. 어떤 변수가 비례/반비례인지 느껴 보세요.<br>
-    ③ 돈을 모아 <b>다음 공식을 해금</b>하세요: 병렬 → 직렬 → 대류 → 열교 → 복사 → 상당외기온도 → 💧습기(이슬점 → Fick 확산 → 잠열 → Glaser).<br>
-    ④ 🔥 덩어리가 나타나면 <b>차가운 쪽으로 드래그</b>! 💡 퀴즈와 미니게임은 큰 보상을 줘요.</p>
-    <p style="color:var(--muted);font-size:13px">진행 상황은 이 브라우저에 자동 저장돼요. 강의 「02 Thermal Energy and Heat Transfer」, 「03 Moisture Transfer」 내용을 바탕으로 만들었어요.</p>
-    <button class="btn" id="resetBtn" style="margin-top:8px">처음부터 다시 하기</button>`);
+    <div class="steps">
+      <div><span>👆</span>화면을 탭하면 열(🔥 J)을 벌어요</div>
+      <div><span>⬆️</span>공식 카드의 버튼으로 출력을 올려요</div>
+      <div><span>🔓</span>돈을 모아 새 공식을 해금해요</div>
+      <div><span>🔥</span>불덩이가 나오면 집 쪽으로 끌어다 놓아요</div>
+      <div><span>💡</span>퀴즈와 미니게임은 큰 보상!</div>
+    </div>
+    <p style="font-size:13px">카드의 <b>?</b> 를 누르면 공식 설명이 나와요. 진행은 자동 저장돼요.</p>
+    <button class="big-ok" id="okBtn">시작하기</button>
+    <button class="reset" id="resetBtn">처음부터 다시 하기</button>`);
+  $('#okBtn').onclick = hideModal;
   $('#resetBtn').onclick = () => { if ($('#resetBtn').dataset.c) { G = fresh(); save(); location.reload(); } else { $('#resetBtn').dataset.c = 1; $('#resetBtn').textContent = '정말 초기화할까요? 한 번 더 누르세요'; } };
 }
 

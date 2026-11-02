@@ -7,21 +7,21 @@
 <meta name="description" content="열전달·수분전달 공식을 하나씩 해금하며 돈(J)을 버는 방치형 학습 게임">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="vendor/katex/katex.min.css">
 <link rel="stylesheet" href="css/game.css">
 </head>
 <body>
 <header class="topbar">
-  <div class="brand"><div class="logo"><span>🔥</span></div><div><h1>열공장 타이쿤</h1><small>공식을 해금해서 열을 팔자</small></div></div>
+  <div class="brand"><span class="logo">🔥</span>열공장 타이쿤</div>
   <div class="wallet">
-    <div class="money" id="boxJ"><div class="ico">🔥</div><div class="num"><span class="lab">보유 열에너지</span><b id="moneyJ">0 J</b></div><span class="rate" id="rateJ">+0 W</span></div>
-    <div class="money water hidden" id="waterBox"><div class="ico">💧</div><div class="num"><span class="lab">모은 물</span><b id="moneyW">0 g</b></div><span class="rate" id="rateW">+0 g/s</span></div>
+    <div class="money" id="boxJ"><div class="ico">🔥</div><div class="num"><b id="moneyJ">0 J</b><span class="rate" id="rateJ">+0 W</span></div></div>
+    <div class="money water hidden" id="waterBox"><div class="ico">💧</div><div class="num"><b id="moneyW">0 g</b><span class="rate" id="rateW">+0 g/s</span></div></div>
   </div>
   <div class="top-actions">
-    <button class="btn" id="btnDex">📖 도감</button>
-    <button class="btn" id="btnHelp">❓ 방법</button>
+    <button class="btn icon-btn" id="btnDex" title="공식 도감">📖</button>
+    <button class="btn icon-btn" id="btnHelp" title="게임 방법">❓</button>
   </div>
 </header>
 
@@ -29,11 +29,14 @@
   <section class="stage-col">
     <div class="stage-card panel">
       <div class="stage-wrap" id="stageWrap"><canvas id="stage"></canvas></div>
-      <div class="click-info"><span class="chip">👆 클릭 1회 <b id="clickVal">1 J</b></span><span class="chip">🚚 배송 효율 η <b id="etaVal">50%</b></span><span class="chip">✨ 전역 배수 <b id="multVal">×1.00</b></span></div>
-      <div class="stage-hint" id="stageHint">벽을 클릭하면 열이 넘어가요. 🔥 덩어리가 나타나면 차가운 쪽으로 끌어다 놓으세요!</div>
+      <div class="stats">
+        <span class="stat" title="한 번 탭할 때 버는 열">👆 <b id="clickVal">1 J</b></span>
+        <span class="stat" title="배송 효율 η (직렬·열교로 올림)">🚚 <b id="etaVal">40%</b></span>
+        <span class="stat" title="전역 배수 (결로 위기 해결로 올림)">✨ <b id="multVal">×1.00</b></span>
+      </div>
     </div>
-    <div class="next-card panel" id="nextCard"></div>
-    <div class="log panel" id="log"></div>
+    <div class="panel next" id="nextCard"></div>
+    <div class="hidden" id="log"></div>
   </section>
   <section class="cards-col" id="cards"></section>
 </main>
