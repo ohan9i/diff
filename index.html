@@ -2,54 +2,17 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>열공장 타이쿤</title>
-<meta name="description" content="열전달·수분전달 공식을 하나씩 해금하며 돈(J)을 버는 방치형 학습 게임">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap">
+<meta name="description" content="불꽃이와 함께 열전달·습기 공식을 해금하며 열을 모으는 방치형 학습 게임">
+<meta name="theme-color" content="#2a2452">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 2.5c.6 3.2 4.9 5.2 4.9 10.3A4.9 4.9 0 0 1 12 21.5a5.4 5.4 0 0 1-5.4-5.6c0-2.6 1.5-4.2 2.6-5.3.3 1.5.9 2.4 1.9 2.9C11 10.6 10.6 6 12 2.5z' fill='%23ff8a3c'/></svg>">
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="vendor/katex/katex.min.css">
-<link rel="stylesheet" href="css/game.css">
+  <script type="module" crossorigin src="./assets/index-DetFuyn5.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-C_uoJvRq.css">
 </head>
 <body>
-<header class="topbar">
-  <div class="brand"><span class="logo">🔥</span>열공장 타이쿤</div>
-  <div class="wallet">
-    <div class="money" id="boxJ"><div class="ico">🔥</div><div class="num"><b id="moneyJ">0 J</b><span class="rate" id="rateJ">+0 W</span></div></div>
-    <div class="money water hidden" id="waterBox"><div class="ico">💧</div><div class="num"><b id="moneyW">0 g</b><span class="rate" id="rateW">+0 g/s</span></div></div>
-  </div>
-  <div class="top-actions">
-    <button class="btn icon-btn" id="btnDex" title="공식 도감">📖</button>
-    <button class="btn icon-btn" id="btnHelp" title="게임 방법">❓</button>
-  </div>
-</header>
-
-<main class="layout">
-  <section class="stage-col">
-    <div class="stage-card panel">
-      <div class="stage-wrap" id="stageWrap"><canvas id="stage"></canvas></div>
-      <div class="stats">
-        <span class="stat" title="한 번 탭할 때 버는 열">👆 <b id="clickVal">1 J</b></span>
-        <span class="stat" title="배송 효율 η (직렬·열교로 올림)">🚚 <b id="etaVal">40%</b></span>
-        <span class="stat" title="전역 배수 (결로 위기 해결로 올림)">✨ <b id="multVal">×1.00</b></span>
-      </div>
-    </div>
-    <div class="panel next" id="nextCard"></div>
-    <div class="hidden" id="log"></div>
-  </section>
-  <section class="cards-col" id="cards"></section>
-</main>
-
-<!-- 모달 -->
-<div class="modal hidden" id="modal"><div class="modal-box"><button class="close" id="modalClose">✕</button><div id="modalBody"></div></div></div>
-<div class="toast-wrap" id="toasts"></div>
-<button class="bubble hidden" id="quizBubble">💡 공식 퀴즈!</button>
-<button class="bubble bubble2 hidden" id="eventBubble"></button>
-
-<script src="vendor/katex/katex.min.js"></script>
-<script src="js/core.js"></script>
-<script src="js/engine.js"></script>
-<script src="js/game.js"></script>
+<div id="root"></div>
 </body>
 </html>

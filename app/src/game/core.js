@@ -1,3 +1,4 @@
+/* 물리·그래프 공용 함수 (원래 시뮬레이터에서 가져옴) */
 /* ===========================================================
    공통 모듈: 물리 함수, 그래프 도구, UI 도우미
    =========================================================== */
@@ -326,3 +327,5 @@ const MATERIALS = {
 function materialOptions(selected) {
   return Object.entries(MATERIALS).map(([k, m]) => `<option value="${k}" ${k === selected ? 'selected' : ''}>${m.name}</option>`).join('');
 }
+
+export { PHYS, fmt, fmtSci, lerpStops, tempRGB, tempColor, fitCanvas, niceTicks, Plot, arrow, roundRect, MATERIALS };
